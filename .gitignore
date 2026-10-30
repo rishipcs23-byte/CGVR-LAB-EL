@@ -1,0 +1,12 @@
+# Godot 4+ specific ignores
+.godot/
+*.translation
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Temp / Scratch files
+*.tmp
+*.log
+scratch/

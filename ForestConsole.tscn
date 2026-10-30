@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cih84fyk8e3vj"]
+
+[ext_resource type="Script" path="res://ForestConsole.gd" id="1_console"]
+
+[node name="ForestConsole" type="CanvasLayer"]
+script = ExtResource("1_console")
