@@ -56,10 +56,16 @@ func execute_tool(tool_name: String, args: Dictionary) -> Dictionary:
 			return tool_generate_world(args)
 		"modify_terrain_region":
 			return tool_modify_terrain_region(args)
+		"create_mountain":
+			return tool_create_mountain(args)
 		"create_mountain_range":
 			return tool_create_mountain_range(args)
 		"modify_mountain":
 			return tool_modify_mountain(args)
+		"create_lake":
+			return tool_create_lake(args)
+		"modify_lake":
+			return tool_modify_lake(args)
 		"create_or_modify_river":
 			return tool_create_or_modify_river(args)
 		"modify_river":
@@ -254,6 +260,105 @@ func tool_generate_world(args: Dictionary) -> Dictionary:
 		"message": summary,
 		"blueprint": new_bp
 	}
+
+
+func tool_create_mountain(args: Dictionary) -> Dictionary:
+	save_history_snapshot()
+	var m_name = str(args.get("name", "Mountain Peak"))
+	var m_id = str(args.get("id", "mtn_%s_%d" % [m_name.to_snake_case(), active_blueprint.mountains.size() + 1]))
+	var px = float(args.get("x", float(args.get("center_x", 0.0))))
+	var pz = float(args.get("z", float(args.get("center_z", 0.0))))
+	var h = clampf(float(args.get("height", 60.0)), 15.0, 120.0)
+	var rad = clampf(float(args.get("radius", 65.0)), 20.0, 160.0)
+	var snow = bool(args.get("snow_cap", h > 40.0))
+	
+	active_blueprint.mountains.append({
+		"id": m_id,
+		"name": m_name,
+		"pos": Vector2(px, pz),
+		"height": h,
+		"radius": rad,
+		"snow_cap": snow,
+		"flora_cleared": false,
+		"status": "verified"
+	})
+	active_blueprint.sync_feature_registry()
+	var summary = "Created mountain peak '%s' (height: %.0fm, radius: %.0fm) at (%.0f, %.0f)%s." % [
+		m_name, h, rad, px, pz, " [snow-capped]" if snow else ""
+	]
+	return {
+		"status": "success",
+		"message": summary,
+		"id": m_id,
+		"coordinates": Vector2(px, pz)
+	}
+
+
+func tool_create_lake(args: Dictionary) -> Dictionary:
+	save_history_snapshot()
+	var l_name = str(args.get("name", "Basin Lake"))
+	var l_id = str(args.get("id", "lake_%d" % (active_blueprint.lakes.size() + 1)))
+	var cx = float(args.get("center_x", float(args.get("x", 0.0))))
+	var cz = float(args.get("center_z", float(args.get("z", 0.0))))
+	var rad = clampf(float(args.get("radius", 30.0)), 10.0, 100.0)
+	var w_level = float(args.get("water_level", -1.5))
+	
+	active_blueprint.lakes.append({
+		"id": l_id,
+		"name": l_name,
+		"center": Vector2(cx, cz),
+		"radius": rad,
+		"water_level": w_level,
+		"status": "verified"
+	})
+	active_blueprint.sync_feature_registry()
+	var summary = "Carved lake '%s' (radius: %.0fm, water_level: %.1fm) at (%.0f, %.0f)." % [
+		l_name, rad, w_level, cx, cz
+	]
+	return {
+		"status": "success",
+		"message": summary,
+		"id": l_id,
+		"center": Vector2(cx, cz)
+	}
+
+
+func tool_modify_lake(args: Dictionary) -> Dictionary:
+	save_history_snapshot()
+	var target_q = str(args.get("target", "1"))
+	var lake = _resolve_lake_target(target_q)
+	if lake.is_empty():
+		return {"status": "error", "message": "Lake '%s' not found." % target_q}
+	if args.has("radius_delta"):
+		lake["radius"] = clampf(float(lake.get("radius", 30.0)) + float(args["radius_delta"]), 10.0, 120.0)
+	elif args.has("new_radius"):
+		lake["radius"] = clampf(float(args["new_radius"]), 10.0, 120.0)
+	if args.has("water_level"):
+		lake["water_level"] = float(args["water_level"])
+	active_blueprint.sync_feature_registry()
+	return {"status": "success", "message": "Modified lake '%s' (radius: %.0fm)." % [lake.get("name", "Lake")]}
+
+
+func _resolve_lake_target(query: String) -> Dictionary:
+	if active_blueprint.lakes.is_empty():
+		return {}
+	var q = query.to_lower().strip_edges()
+	for l in active_blueprint.lakes:
+		var l_name = str(l.get("name", "")).to_lower()
+		var l_id = str(l.get("id", "")).to_lower()
+		if not q.is_empty() and (q == l_id or q == l_name or q in l_name or l_name in q):
+			return l
+	if "north" in q:
+		var best = active_blueprint.lakes[0]
+		for l in active_blueprint.lakes:
+			if l.center.y < best.center.y: best = l
+		return best
+	if "south" in q:
+		var best = active_blueprint.lakes[0]
+		for l in active_blueprint.lakes:
+			if l.center.y > best.center.y: best = l
+		return best
+	return active_blueprint.lakes[0]
 
 
 func tool_create_mountain_range(args: Dictionary) -> Dictionary:

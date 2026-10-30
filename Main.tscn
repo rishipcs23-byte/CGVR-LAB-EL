@@ -1,11 +1,13 @@
-[gd_scene load_steps=10 format=3 uid="uid://d0grl6tdrab08"]
+[gd_scene load_steps=12 format=3 uid="uid://d0grl6tdrab08"]
 
 [ext_resource type="Script" uid="uid://64ee4kogyt82" path="res://ChunkManager.gd" id="1_glv2v"]
 [ext_resource type="PackedScene" uid="uid://cwhpy8mwx2xao" path="res://Chunk.tscn" id="2_r0du0"]
 [ext_resource type="PackedScene" uid="uid://dop3i0ors6kmm" path="res://Player.tscn" id="2_uu6xs"]
-[ext_resource type="Script" path="res://AtmosphereManager.gd" id="4_atmo"]
-[ext_resource type="Script" path="res://ForestArchitect.gd" id="5_arch"]
+[ext_resource type="Script" uid="uid://dii5746ey2wi" path="res://AtmosphereManager.gd" id="4_atmo"]
+[ext_resource type="Script" uid="uid://0u6mbkf3gq4n" path="res://ForestArchitect.gd" id="5_arch"]
 [ext_resource type="PackedScene" uid="uid://cih84fyk8e3vj" path="res://ForestConsole.tscn" id="6_ui"]
+[ext_resource type="Script" path="res://FluidSimulationManager.gd" id="7_fluid"]
+[ext_resource type="Script" path="res://WaterSurfaceRenderer.gd" id="8_water"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_r0du0"]
 sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
@@ -38,13 +40,27 @@ world_environment = NodePath("../WorldEnvironment")
 sun_light = NodePath("../DirectionalLight3D")
 player = NodePath("../Player")
 
-[node name="ChunkManager" type="Node3D" parent="." node_paths=PackedStringArray("player", "atmosphere_manager")]
+[node name="ChunkManager" type="Node3D" parent="." node_paths=PackedStringArray("player", "atmosphere_manager", "fluid_simulation_manager", "water_surface_renderer")]
 script = ExtResource("1_glv2v")
 player = NodePath("../Player")
 chunk_scene = ExtResource("2_r0du0")
 render_distance = 6
 overall_scale = 2.0
 atmosphere_manager = NodePath("../AtmosphereManager")
+fluid_simulation_manager = NodePath("../FluidSimulationManager")
+water_surface_renderer = NodePath("../WaterSurfaceRenderer")
+
+[node name="FluidSimulationManager" type="Node" parent="."]
+script = ExtResource("7_fluid")
+simulation_resolution = Vector2i(128, 128)
+simulation_frequency_hz = 30.0
+use_gpu = true
+
+[node name="WaterSurfaceRenderer" type="Node3D" parent="." node_paths=PackedStringArray("fluid_manager")]
+script = ExtResource("8_water")
+fluid_manager = NodePath("../FluidSimulationManager")
+update_frequency_hz = 30.0
+mesh_resolution = 128
 
 [node name="Player" parent="." instance=ExtResource("2_uu6xs")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 44.3204, 0)

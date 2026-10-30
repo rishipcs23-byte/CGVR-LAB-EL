@@ -70,6 +70,18 @@ var terrain_tint: Color = Color(1.0, 1.0, 1.0)
 # e.g. "southern snowy": dictionary with { "south": true, "snow": true }
 var regional_snow: Dictionary = {"south": false, "north": false, "west": false, "east": false}
 
+# --- Structured World Blueprint & Feature Registry ---
+var requirements: Dictionary = {}
+var feature_registry: Dictionary = {
+	"mountains": {},
+	"mountain_ranges": {},
+	"rivers": {},
+	"lakes": {},
+	"waterfalls": {},
+	"biome_regions": {},
+	"vegetation_layers": {}
+}
+
 # --- Discrete Structural Landforms ---
 # Mountains: Array of Dictionary { id, name, pos: Vector2, height: float, radius: float, snow_cap: bool, flora_cleared: bool }
 var mountains: Array = []
@@ -109,11 +121,115 @@ var grass_color: Color = Color(0.0, 0.55, 0.31)
 var raw_data: Dictionary = {}
 
 
+func sync_feature_registry() -> void:
+	feature_registry["mountains"].clear()
+	for m in mountains:
+		var m_id = str(m.get("id", "mtn_%d" % (feature_registry["mountains"].size() + 1)))
+		m["id"] = m_id
+		m["type"] = "mountain"
+		m["status"] = m.get("status", "verified")
+		feature_registry["mountains"][m_id] = m
+		
+	feature_registry["mountain_ranges"].clear()
+	for mr in mountain_ranges:
+		var mr_id = str(mr.get("id", "range_%d" % (feature_registry["mountain_ranges"].size() + 1)))
+		mr["id"] = mr_id
+		mr["type"] = "mountain_range"
+		mr["status"] = mr.get("status", "verified")
+		feature_registry["mountain_ranges"][mr_id] = mr
+		
+	feature_registry["rivers"].clear()
+	for r in rivers:
+		var r_id = str(r.get("id", "river_%d" % (feature_registry["rivers"].size() + 1)))
+		r["id"] = r_id
+		r["type"] = "river"
+		r["status"] = r.get("status", "verified")
+		feature_registry["rivers"][r_id] = r
+		
+	feature_registry["lakes"].clear()
+	for l in lakes:
+		var l_id = str(l.get("id", "lake_%d" % (feature_registry["lakes"].size() + 1)))
+		l["id"] = l_id
+		l["type"] = "lake"
+		l["status"] = l.get("status", "verified")
+		feature_registry["lakes"][l_id] = l
+		
+	feature_registry["waterfalls"].clear()
+	for r in rivers:
+		for wf in r.get("waterfalls", []):
+			var wf_id = str(wf.get("id", "wf_%d" % (feature_registry["waterfalls"].size() + 1)))
+			wf["id"] = wf_id
+			wf["type"] = "waterfall"
+			wf["status"] = wf.get("status", "verified")
+			feature_registry["waterfalls"][wf_id] = wf
+			
+	feature_registry["biome_regions"].clear()
+	for b in biome_regions:
+		var b_id = str(b.get("id", "biome_%d" % (feature_registry["biome_regions"].size() + 1)))
+		b["id"] = b_id
+		b["type"] = "biome"
+		b["status"] = b.get("status", "verified")
+		feature_registry["biome_regions"][b_id] = b
+
+
+func to_dict() -> Dictionary:
+	var feat_list: Array = []
+	for m in mountains:
+		feat_list.append({
+			"id": m.get("id", ""),
+			"type": "mountain",
+			"name": m.get("name", "Mountain"),
+			"pos": [m.pos.x, m.pos.y],
+			"height": m.get("height", 50.0),
+			"radius": m.get("radius", 65.0),
+			"snow_cap": m.get("snow_cap", false),
+			"status": m.get("status", "verified")
+		})
+	for r in rivers:
+		var pts_arr = []
+		for p in r.get("points", []):
+			pts_arr.append([p.x, p.y])
+		feat_list.append({
+			"id": r.get("id", ""),
+			"type": "river",
+			"name": r.get("name", "River"),
+			"points": pts_arr,
+			"width": r.get("width", 8.0),
+			"depth": r.get("depth", 4.0),
+			"flow_speed": r.get("flow_speed", 0.65),
+			"waterfalls": r.get("waterfalls", []),
+			"status": r.get("status", "verified")
+		})
+	for l in lakes:
+		feat_list.append({
+			"id": l.get("id", ""),
+			"type": "lake",
+			"name": l.get("name", "Lake"),
+			"center": [l.center.x, l.center.y],
+			"radius": l.get("radius", 30.0),
+			"water_level": l.get("water_level", -1.5),
+			"status": l.get("status", "verified")
+		})
+	return {
+		"theme": theme,
+		"terrain": terrain_type,
+		"requirements": requirements,
+		"features": feat_list,
+		"mountains": mountains,
+		"mountain_ranges": mountain_ranges,
+		"rivers": rivers,
+		"lakes": lakes,
+		"biome_regions": biome_regions,
+		"regional_snow": regional_snow
+	}
+
+
 static func create_default() -> ForestBlueprint:
 	var bp = ForestBlueprint.new()
 	bp.world_seed = 42
 	_populate_default_structures(bp)
 	_populate_default_layers_for_theme(bp)
+	bp.sync_feature_registry()
 	return bp
 
 
@@ -249,7 +365,105 @@ static func from_json(dict: Dictionary) -> ForestBlueprint:
 	if dict.has("terrain_tint"):
 		bp.terrain_tint = parse_color(dict["terrain_tint"], Color.WHITE)
 		
-	# Parse Mountains
+	# Parse Explicit Requirements
+	if dict.has("requirements") and dict["requirements"] is Dictionary:
+		bp.requirements = dict["requirements"].duplicate(true)
+
+	# Parse Structured Features List if present
+	if dict.has("features") and dict["features"] is Array:
+		for f in dict["features"]:
+			if not (f is Dictionary):
+				continue
+			var f_type = str(f.get("type", "")).to_lower().strip_edges()
+			var f_id = str(f.get("id", ""))
+			var f_name = str(f.get("name", f_type.capitalize()))
+			var f_status = str(f.get("status", "planned"))
+			
+			match f_type:
+				"mountain":
+					var mx = 0.0
+					var mz = 0.0
+					if f.has("pos") and f["pos"] is Array and f["pos"].size() >= 2:
+						mx = float(f["pos"][0])
+						mz = float(f["pos"][1])
+					elif f.has("coordinates") and f["coordinates"] is Array and f["coordinates"].size() >= 2:
+						mx = float(f["coordinates"][0])
+						mz = float(f["coordinates"][1])
+					else:
+						mx = float(f.get("x", 0.0))
+						mz = float(f.get("z", 0.0))
+					var mh = clampf(float(f.get("height", 55.0)), 15.0, 120.0)
+					var mr = clampf(float(f.get("radius", 65.0)), 20.0, 160.0)
+					var sc = bool(f.get("snow_cap", mh > 40.0))
+					bp.mountains.append({
+						"id": f_id if not f_id.is_empty() else "mtn_%d" % (bp.mountains.size() + 1),
+						"name": f_name,
+						"pos": Vector2(mx, mz),
+						"height": mh,
+						"radius": mr,
+						"snow_cap": sc,
+						"flora_cleared": bool(f.get("flora_cleared", false)),
+						"status": f_status
+					})
+				"river":
+					var pts = PackedVector2Array()
+					if f.has("points"):
+						if f["points"] is PackedVector2Array:
+							pts = f["points"]
+						elif f["points"] is Array:
+							for p in f["points"]:
+								if p is Vector2:
+									pts.append(p)
+								elif p is Array and p.size() >= 2:
+									pts.append(Vector2(float(p[0]), float(p[1])))
+								elif p is Dictionary:
+									pts.append(Vector2(float(p.get("x", 0.0)), float(p.get("z", 0.0))))
+					var rw = clampf(float(f.get("width", 8.0)), 3.0, 25.0)
+					var rd = clampf(float(f.get("depth", 4.0)), 1.5, 10.0)
+					var rspd = clampf(float(f.get("flow_speed", 0.65)), 0.1, 4.0)
+					var spline_data = build_river_spline_data(pts, 3.5)
+					bp.rivers.append({
+						"id": f_id if not f_id.is_empty() else "river_%d" % (bp.rivers.size() + 1),
+						"name": f_name,
+						"points": pts,
+						"spline_points": spline_data.spline_points,
+						"distances": spline_data.distances,
+						"total_length": spline_data.total_length,
+						"width": rw,
+						"depth": rd,
+						"flow_speed": rspd,
+						"spring_sources": f.get("spring_sources", []),
+						"waterfalls": f.get("waterfalls", []),
+						"status": f_status
+					})
+				"lake":
+					var cx = 0.0
+					var cz = 0.0
+					if f.has("center") and f["center"] is Array and f["center"].size() >= 2:
+						cx = float(f["center"][0])
+						cz = float(f["center"][1])
+					else:
+						cx = float(f.get("x", 0.0))
+						cz = float(f.get("z", 0.0))
+					var lrad = clampf(float(f.get("radius", 30.0)), 10.0, 100.0)
+					var wlvl = float(f.get("water_level", -1.5))
+					bp.lakes.append({
+						"id": f_id if not f_id.is_empty() else "lake_%d" % (bp.lakes.size() + 1),
+						"name": f_name,
+						"center": Vector2(cx, cz),
+						"radius": lrad,
+						"water_level": wlvl,
+						"status": f_status
+					})
+				"mountain_range":
+					bp.mountain_ranges.append({
+						"id": f_id if not f_id.is_empty() else "range_%d" % (bp.mountain_ranges.size() + 1),
+						"name": f_name,
+						"peak_ids": f.get("peak_ids", []),
+						"status": f_status
+					})
+
+	# Parse Mountains (Top-level array)
 	bp.mountains.clear()
 	if dict.has("mountains") and dict["mountains"] is Array:
 		for m_data in dict["mountains"]:
@@ -289,12 +503,17 @@ static func from_json(dict: Dictionary) -> ForestBlueprint:
 		for r_data in dict["rivers"]:
 			if r_data is Dictionary:
 				var pts = PackedVector2Array()
-				if r_data.has("points") and r_data["points"] is Array:
-					for p in r_data["points"]:
-						if p is Array and p.size() >= 2:
-							pts.append(Vector2(float(p[0]), float(p[1])))
-						elif p is Dictionary:
-							pts.append(Vector2(float(p.get("x", 0.0)), float(p.get("z", 0.0))))
+				if r_data.has("points"):
+					if r_data["points"] is PackedVector2Array:
+						pts = r_data["points"]
+					elif r_data["points"] is Array:
+						for p in r_data["points"]:
+							if p is Vector2:
+								pts.append(p)
+							elif p is Array and p.size() >= 2:
+								pts.append(Vector2(float(p[0]), float(p[1])))
+							elif p is Dictionary:
+								pts.append(Vector2(float(p.get("x", 0.0)), float(p.get("z", 0.0))))
 				var r_width = clampf(float(r_data.get("width", 8.0)), 3.0, 25.0)
 				var r_depth = clampf(float(r_data.get("depth", 4.0)), 1.5, 10.0)
 				var r_speed = clampf(float(r_data.get("flow_speed", 0.65)), 0.1, 4.0)
@@ -342,7 +561,7 @@ static func from_json(dict: Dictionary) -> ForestBlueprint:
 					"boost": float(b_data.get("boost", 1.0))
 				})
 				
-	if bp.mountains.size() == 0 and bp.rivers.size() == 0:
+	if bp.mountains.size() == 0 and bp.rivers.size() == 0 and bp.lakes.size() == 0 and bp.requirements.is_empty():
 		_populate_default_structures(bp)
 		
 	# Parse Vegetation Layers
@@ -363,6 +582,7 @@ static func from_json(dict: Dictionary) -> ForestBlueprint:
 	if bp.vegetation_layers.size() == 0:
 		_populate_default_layers_for_theme(bp)
 		
+	bp.sync_feature_registry()
 	return bp
 
 
@@ -625,6 +845,11 @@ func is_flora_excluded(wx: float, wz: float) -> bool:
 			var d = pos2.distance_to(m.pos)
 			if d < float(m.radius) * 0.45:
 				return true
+				
+	for l in lakes:
+		var d = pos2.distance_to(l.center)
+		if d < float(l.radius) * 1.05:
+			return true
 				
 	return false
 

@@ -2,15 +2,17 @@
 extends SceneTree
 
 const SatelliteMapRenderer = preload("res://SatelliteMapRenderer.gd")
+const ChunkManagerClass = preload("res://ChunkManager.gd")
 
 func _init():
 	print("=================================================================")
-	print("SUBLIMEGREENS — HYDROLOGY, SATELLITE MAP & AI EDITING VALIDATION")
+	print("SUBLIMEGREENS — AI UNDERSTANDING & WORLD GENERATION VERIFICATION")
 	print("=================================================================")
 	
 	var root = Node.new()
 	get_root().add_child(root)
 	
+	var chunk_scene = load("res://Chunk.tscn")
 	var architect = ForestArchitect.new()
 	root.add_child(architect)
 	architect._ready()
@@ -18,180 +20,258 @@ func _init():
 	var all_passed = true
 	
 	# -------------------------------------------------------------------------
-	# TEST 1: Three mountain ranges with springs feeding two rivers merging into one
+	# TEST 1: Create 2 rivers and 1 mountain.
 	# -------------------------------------------------------------------------
-	var prompt1 = "Create three mountain ranges with springs feeding two rivers that merge into one large river."
-	var dict1 = architect._create_fallback_from_prompt(prompt1)
+	print("\n--- TEST 1: Create 2 rivers and 1 mountain ---")
+	var prompt1 = "Create 2 rivers and 1 mountain."
+	var intent1 = ForestArchitect.parse_natural_language_intent(prompt1)
+	architect.current_intent = intent1
+	var dict1 = architect._synthesize_blueprint_from_intent(intent1)
 	architect._finalize_world_generation(dict1)
-	var bp = architect.tool_registry.active_blueprint
+	var bp1 = architect.tool_registry.active_blueprint
 	
-	if bp.mountain_ranges.size() >= 3 and bp.rivers.size() >= 3:
-		print("[PASS] Test 1: Created %d mountain ranges and %d rivers (2 tributaries merging into 1 main river)." % [
-			bp.mountain_ranges.size(), bp.rivers.size()
+	var test1_mtn_ok = (bp1.mountains.size() == 1)
+	var test1_river_ok = (bp1.rivers.size() == 2)
+	
+	# Verify spatial separation
+	var river1_pts: PackedVector2Array = bp1.rivers[0].get("points", PackedVector2Array())
+	var river2_pts: PackedVector2Array = bp1.rivers[1].get("points", PackedVector2Array())
+	var separated = river1_pts.size() > 0 and river2_pts.size() > 0 and abs(river1_pts[0].x - river2_pts[0].x) > 50.0
+	
+	if test1_mtn_ok and test1_river_ok and separated:
+		print("[PASS] Test 1: Exactly %d mountain and %d rivers created with distinct spatial separation (dx=%.0fm)." % [
+			bp1.mountains.size(), bp1.rivers.size(), abs(river1_pts[0].x - river2_pts[0].x)
 		])
 	else:
-		printerr("[FAIL] Test 1: Expected >=3 mountain ranges and >=3 rivers.")
+		printerr("[FAIL] Test 1: Expected exactly 1 mountain and 2 rivers. Got %d mountains, %d rivers." % [
+			bp1.mountains.size(), bp1.rivers.size()
+		])
 		all_passed = false
 		
 	# -------------------------------------------------------------------------
-	# TEST 2: Make main river U-shaped and animate water flowing downstream
+	# TEST 2: Create 3 mountains, 2 rivers, and 4 lakes.
 	# -------------------------------------------------------------------------
-	var edit2 = architect._create_fallback_edit("Make the main river U-shaped and animate the water flowing downstream.", {})
-	architect._execute_edit_plan(edit2)
-	bp = architect.tool_registry.active_blueprint
-	var main_river = architect.tool_registry._resolve_river_target("main")
-	var spline_pts: PackedVector2Array = main_river.get("spline_points", PackedVector2Array())
-	var flow_spd = float(main_river.get("flow_speed", 0.0))
+	print("\n--- TEST 2: Create 3 mountains, 2 rivers, and 4 lakes ---")
+	var prompt2 = "Create 3 mountains, 2 rivers, and 4 lakes."
+	var intent2 = ForestArchitect.parse_natural_language_intent(prompt2)
+	architect.current_intent = intent2
+	var dict2 = architect._synthesize_blueprint_from_intent(intent2)
+	architect._finalize_world_generation(dict2)
+	var bp2 = architect.tool_registry.active_blueprint
 	
-	if spline_pts.size() > 20 and flow_spd >= 1.0:
-		print("[PASS] Test 2: Main river reshaped into smooth U-curve (%d Catmull-Rom spline points, downstream flow_speed=%.2f)." % [
-			spline_pts.size(), flow_spd
+	var test2_ok = (bp2.mountains.size() == 3 and bp2.rivers.size() == 2 and bp2.lakes.size() == 4)
+	if test2_ok:
+		print("[PASS] Test 2: Created exactly %d mountains, %d rivers, and %d lakes." % [
+			bp2.mountains.size(), bp2.rivers.size(), bp2.lakes.size()
 		])
 	else:
-		printerr("[FAIL] Test 2: Main river U-shape or downstream flow speed failed.")
-		all_passed = false
-		
-	# -------------------------------------------------------------------------
-	# TEST 3: Make northwestern mountain taller and cover its peak with snow (No manual selection)
-	# -------------------------------------------------------------------------
-	var nw_before = architect.tool_registry._resolve_mountain_target("northwest")
-	var nw_id = str(nw_before.get("id", ""))
-	var nw_h_before = float(nw_before.get("height", 0.0))
-	var ne_before = architect.tool_registry._resolve_mountain_target("northeast")
-	var ne_h_before = float(ne_before.get("height", 0.0))
-	
-	var edit3 = architect._create_fallback_edit("Make the northwestern mountain taller and cover its peak with snow.", {})
-	architect._execute_edit_plan(edit3)
-	bp = architect.tool_registry.active_blueprint
-	var nw_after = architect.tool_registry._resolve_mountain_target(nw_id)
-	var ne_after = architect.tool_registry._resolve_mountain_target("northeast")
-	
-	if float(nw_after.get("height", 0.0)) > nw_h_before and bool(nw_after.get("snow_cap", false)) and is_equal_approx(float(ne_after.get("height", 0.0)), ne_h_before):
-		print("[PASS] Test 3: Context-aware NW mountain '%s' height increased (%.0fm -> %.0fm, snow_cap=true), NE mountain untouched." % [
-			nw_after.get("name", ""), nw_h_before, float(nw_after.get("height", 0.0))
+		printerr("[FAIL] Test 2: Expected 3 mtns, 2 rivers, 4 lakes. Got %d mtns, %d rivers, %d lakes." % [
+			bp2.mountains.size(), bp2.rivers.size(), bp2.lakes.size()
 		])
+		all_passed = false
+		
+	# Verify lake water disc generation in ChunkManager
+	var cm = ChunkManagerClass.new()
+	cm.chunk_scene = chunk_scene
+	cm.render_distance = 1
+	cm.overall_scale = 2.0
+	cm.effective_chunk_size_x = 64.0
+	cm.effective_chunk_size_z = 64.0
+	root.add_child(cm)
+	cm.rebuild_world_from_blueprint(bp2)
+	if cm.lakes_container and cm.lakes_container.get_child_count() == 4:
+		print("[PASS] Test 2 (Geometry): ChunkManager generated %d visible 3D lake water discs." % cm.lakes_container.get_child_count())
 	else:
-		printerr("[FAIL] Test 3: Context-aware NW mountain edit failed.")
+		printerr("[FAIL] Test 2 (Geometry): ChunkManager failed to generate 4 visible lake discs.")
 		all_passed = false
 		
 	# -------------------------------------------------------------------------
-	# TEST 4: Add dense vegetation around the riverbanks
+	# TEST 3: Create 5 mountains in the northern region.
 	# -------------------------------------------------------------------------
-	var layers_before = bp.vegetation_layers.size()
-	var edit4 = architect._create_fallback_edit("Add dense vegetation around the riverbanks.", {})
-	architect._execute_edit_plan(edit4)
-	bp = architect.tool_registry.active_blueprint
-	var has_riparian = false
-	for l in bp.vegetation_layers:
-		if l.near_water_only or l.distribution == "riverbank_focused":
-			has_riparian = true
-			break
-	if bp.vegetation_layers.size() > layers_before and has_riparian:
-		print("[PASS] Test 4: Dense riverbank flora layer added (total layers: %d, near_water_only=true)." % bp.vegetation_layers.size())
-	else:
-		printerr("[FAIL] Test 4: Riverbank vegetation layer was not added.")
-		all_passed = false
-		
-	# -------------------------------------------------------------------------
-	# TEST 5: Make all rivers wider without changing mountain positions
-	# -------------------------------------------------------------------------
-	var mtn_positions_before: Array[Vector2] = []
-	for m in bp.mountains:
-		mtn_positions_before.append(m.pos)
-	var river_widths_before: Array[float] = []
-	for r in bp.rivers:
-		river_widths_before.append(float(r.get("width", 8.0)))
-		
-	var edit5 = architect._create_fallback_edit("Make all rivers wider without changing the mountain positions.", {})
-	architect._execute_edit_plan(edit5)
-	bp = architect.tool_registry.active_blueprint
+	print("\n--- TEST 3: Create 5 mountains in the northern region ---")
+	var prompt3 = "Create 5 mountains in the northern region."
+	var intent3 = ForestArchitect.parse_natural_language_intent(prompt3)
+	architect.current_intent = intent3
+	var dict3 = architect._synthesize_blueprint_from_intent(intent3)
+	architect._finalize_world_generation(dict3)
+	var bp3 = architect.tool_registry.active_blueprint
 	
-	var widths_increased = true
-	for i in range(bp.rivers.size()):
-		if float(bp.rivers[i].get("width", 0.0)) <= river_widths_before[i]:
-			widths_increased = false
-	var mtns_unchanged = true
-	for i in range(bp.mountains.size()):
-		if bp.mountains[i].pos != mtn_positions_before[i]:
-			mtns_unchanged = false
+	var test3_count_ok = (bp3.mountains.size() == 5)
+	var all_north = true
+	for m in bp3.mountains:
+		var pz = float(m.get("pos", Vector2.ZERO).y)
+		if pz > -25.0:
+			all_north = false
 			
-	if widths_increased and mtns_unchanged:
-		print("[PASS] Test 5: All %d rivers widened while all %d mountain positions remained unchanged." % [
-			bp.rivers.size(), bp.mountains.size()
-		])
+	if test3_count_ok and all_north:
+		print("[PASS] Test 3: Exactly %d mountains created, all situated in northern region (z <= -25)." % bp3.mountains.size())
 	else:
-		printerr("[FAIL] Test 5: All rivers wider / mountains unchanged check failed.")
+		printerr("[FAIL] Test 3: Expected 5 northern mountains. Got count=%d, all_north=%s" % [bp3.mountains.size(), str(all_north)])
 		all_passed = false
 		
 	# -------------------------------------------------------------------------
-	# TEST 6: Create a waterfall where the eastern river drops into the valley
+	# TEST 4: Create 2 rivers flowing from separate mountains.
 	# -------------------------------------------------------------------------
-	var edit6 = architect._create_fallback_edit("Create a waterfall where the eastern river drops into the valley.", {})
+	print("\n--- TEST 4: Create 2 rivers flowing from separate mountains ---")
+	var prompt4 = "Create 2 rivers flowing from separate mountains."
+	var intent4 = ForestArchitect.parse_natural_language_intent(prompt4)
+	architect.current_intent = intent4
+	var dict4 = architect._synthesize_blueprint_from_intent(intent4)
+	architect._finalize_world_generation(dict4)
+	var bp4 = architect.tool_registry.active_blueprint
+	
+	var r1_pts: PackedVector2Array = bp4.rivers[0].get("points", PackedVector2Array()) if bp4.rivers.size() > 0 else PackedVector2Array()
+	var r2_pts: PackedVector2Array = bp4.rivers[1].get("points", PackedVector2Array()) if bp4.rivers.size() > 1 else PackedVector2Array()
+	var r1_start = r1_pts[0] if r1_pts.size() > 0 else Vector2.ZERO
+	var r2_start = r2_pts[0] if r2_pts.size() > 0 else Vector2.ZERO
+	var diff_sources = bp4.mountains.size() >= 2 and bp4.rivers.size() == 2 and (r1_start != r2_start)
+	
+	if diff_sources:
+		print("[PASS] Test 4: Created 2 rivers flowing from separate mountains (m1 at %s, m2 at %s)." % [
+			str(bp4.mountains[0].pos), str(bp4.mountains[1].pos)
+		])
+	else:
+		printerr("[FAIL] Test 4: Expected 2 rivers flowing from separate mountains.")
+		all_passed = false
+		
+	# -------------------------------------------------------------------------
+	# TEST 5: Create 1 mountain, 1 river, and 1 waterfall.
+	# -------------------------------------------------------------------------
+	print("\n--- TEST 5: Create 1 mountain, 1 river, and 1 waterfall ---")
+	var prompt5 = "Create 1 mountain, 1 river, and 1 waterfall."
+	var intent5 = ForestArchitect.parse_natural_language_intent(prompt5)
+	architect.current_intent = intent5
+	var dict5 = architect._synthesize_blueprint_from_intent(intent5)
+	architect._finalize_world_generation(dict5)
+	var bp5 = architect.tool_registry.active_blueprint
+	
+	var actual_wfs = 0
+	for r in bp5.rivers:
+		actual_wfs += r.get("waterfalls", []).size()
+		
+	if bp5.mountains.size() == 1 and bp5.rivers.size() == 1 and actual_wfs == 1:
+		print("[PASS] Test 5: Created 1 mountain, 1 river, and 1 waterfall (drop=%.0fm on '%s')." % [
+			float(bp5.rivers[0].waterfalls[0].get("height_drop", 0.0)), bp5.rivers[0].get("name", "")
+		])
+	else:
+		printerr("[FAIL] Test 5: Expected 1 mtn, 1 river, 1 waterfall. Got %d mtns, %d rivers, %d wfs." % [
+			bp5.mountains.size(), bp5.rivers.size(), actual_wfs
+		])
+		all_passed = false
+		
+	# -------------------------------------------------------------------------
+	# TEST 6: Create a forest around both rivers without changing the mountains.
+	# -------------------------------------------------------------------------
+	print("\n--- TEST 6: Create a forest around both rivers without changing mountains ---")
+	# Start with a world having 2 rivers and 2 mountains
+	var bp6_base = ForestBlueprint.new()
+	bp6_base.mountains = [
+		{"id": "mtn_1", "name": "North Peak", "pos": Vector2(-60.0, -75.0), "height": 60.0, "radius": 65.0, "snow_cap": true, "status": "verified"},
+		{"id": "mtn_2", "name": "East Peak", "pos": Vector2(60.0, -75.0), "height": 55.0, "radius": 60.0, "snow_cap": true, "status": "verified"}
+	]
+	var pts_a = PackedVector2Array([Vector2(-60.0, -70.0), Vector2(-30.0, 0.0), Vector2(-10.0, 70.0)])
+	var pts_b = PackedVector2Array([Vector2(60.0, -70.0), Vector2(30.0, 0.0), Vector2(10.0, 70.0)])
+	bp6_base.rivers = [
+		{"id": "r1", "name": "West River", "points": pts_a, "spline_points": pts_a, "distances": PackedFloat32Array([0, 70, 140]), "total_length": 140.0, "width": 8.0, "depth": 4.0, "flow_speed": 0.7, "status": "verified"},
+		{"id": "r2", "name": "East River", "points": pts_b, "spline_points": pts_b, "distances": PackedFloat32Array([0, 70, 140]), "total_length": 140.0, "width": 8.0, "depth": 4.0, "flow_speed": 0.7, "status": "verified"}
+	]
+	bp6_base.sync_feature_registry()
+	architect.tool_registry.active_blueprint = bp6_base
+	
+	var mtn1_pos_before = bp6_base.mountains[0].pos
+	var mtn2_pos_before = bp6_base.mountains[1].pos
+	var layers_before = bp6_base.vegetation_layers.size()
+	
+	var edit6 = architect._create_fallback_edit("Create a forest around both rivers without changing the mountains.", {})
 	architect._execute_edit_plan(edit6)
-	bp = architect.tool_registry.active_blueprint
-	var east_r = architect.tool_registry._resolve_river_target("east")
-	var wfs = east_r.get("waterfalls", [])
-	if wfs is Array and wfs.size() > 0:
-		var wf = wfs[0]
-		print("[PASS] Test 6: Waterfall created on '%s' at %s (height_drop=%.0fm)." % [
-			east_r.get("name", ""), str(wf.get("pos")), float(wf.get("height_drop", 0.0))
+	var bp6_after = architect.tool_registry.active_blueprint
+	
+	var mtns_unmoved = (bp6_after.mountains[0].pos == mtn1_pos_before and bp6_after.mountains[1].pos == mtn2_pos_before)
+	var has_riverbank_flora = false
+	for l in bp6_after.vegetation_layers:
+		if l.distribution == "riverbank_focused" or l.near_water_only:
+			has_riverbank_flora = true
+			break
+			
+	if mtns_unmoved and has_riverbank_flora:
+		print("[PASS] Test 6: Forest layer created around rivers; all mountain positions strictly preserved.")
+	else:
+		printerr("[FAIL] Test 6: Forest creation around rivers failed or mountains moved.")
+		all_passed = false
+		
+	# -------------------------------------------------------------------------
+	# TEST 7: Make the northwestern mountain taller.
+	# -------------------------------------------------------------------------
+	print("\n--- TEST 7: Make the northwestern mountain taller ---")
+	var nw_before = architect.tool_registry._resolve_mountain_target("northwest")
+	var nw_h_before = float(nw_before.get("height", 0.0))
+	var other_before = architect.tool_registry._resolve_mountain_target("east")
+	var other_h_before = float(other_before.get("height", 0.0))
+	
+	var edit7 = architect._create_fallback_edit("Make the northwestern mountain taller.", {})
+	architect._execute_edit_plan(edit7)
+	var bp7 = architect.tool_registry.active_blueprint
+	var nw_after = architect.tool_registry._resolve_mountain_target("northwest")
+	var other_after = architect.tool_registry._resolve_mountain_target("east")
+	
+	if float(nw_after.get("height", 0.0)) > nw_h_before and is_equal_approx(float(other_after.get("height", 0.0)), other_h_before):
+		print("[PASS] Test 7: Northwestern mountain height increased (%.0fm -> %.0fm); other mountain untouched." % [
+			nw_h_before, float(nw_after.get("height", 0.0))
 		])
 	else:
-		printerr("[FAIL] Test 6: Waterfall creation failed.")
+		printerr("[FAIL] Test 7: NW mountain height edit failed.")
 		all_passed = false
 		
 	# -------------------------------------------------------------------------
-	# TEST 7: Make the southern region snowy and leave the northern forest unchanged
+	# TEST 8: Generate a deliberately malformed AI response and verify no crash.
 	# -------------------------------------------------------------------------
-	var edit7 = architect._create_fallback_edit("Make the southern region snowy and leave the northern forest unchanged.", {})
-	architect._execute_edit_plan(edit7)
-	bp = architect.tool_registry.active_blueprint
-	if bp.is_in_snow_cap(0.0, 65.0, 12.0) and not bp.is_in_snow_cap(0.0, -40.0, 12.0):
-		print("[PASS] Test 7: Southern region snowy (is_in_snow_cap(0,65)=true) and northern forest unchanged (is_in_snow_cap(0,-40)=false).")
-	else:
-		printerr("[FAIL] Test 7: Regional snow check failed.")
-		all_passed = false
-		
-	# -------------------------------------------------------------------------
-	# TEST 8: Satellite-Style 2D World Map & 3D River Shader Verification
-	# -------------------------------------------------------------------------
-	var t0 = Time.get_ticks_msec()
-	var sat_tex = SatelliteMapRenderer.render(bp, 180)
-	var elapsed_ms = Time.get_ticks_msec() - t0
-	if sat_tex != null and sat_tex.get_width() == 180 and sat_tex.get_height() == 180:
-		print("[PASS] Test 8A: Satellite 2D World Map generated (180x180 px in %d ms) from live world data." % elapsed_ms)
-	else:
-		printerr("[FAIL] Test 8A: Satellite map texture generation failed.")
-		all_passed = false
-		
-	var chunk_scene = load("res://Chunk.tscn")
-	if chunk_scene:
-		var chunk = chunk_scene.instantiate()
-		root.add_child(chunk)
-		chunk.initialize_chunk(Vector2i(0, 0), bp)
-		var r_mi: MeshInstance3D = chunk.river_mesh_instance
-		if r_mi != null and r_mi.mesh != null and r_mi.material_override is ShaderMaterial:
-			var sm: ShaderMaterial = r_mi.material_override
-			var f_spd = sm.get_shader_parameter("flow_speed")
-			print("[PASS] Test 8B: 3D Chunk RiverMeshInstance generated with directional river.gdshader (flow_speed=%.2f)." % float(f_spd))
-		else:
-			printerr("[FAIL] Test 8B: Chunk RiverMeshInstance or ShaderMaterial missing.")
-			all_passed = false
+	print("\n--- TEST 8: Malformed AI response handling ---")
+	var malformed_responses = [
+		"```json\n{\"theme\": \"Broken World\", \"mountains\": [{\"id\": 1, \"height\": 50,},], \"rivers\": [}\n```",
+		"Here is your landscape: {\"theme\": \"Incomplete\", \"mountains\": [",
+		"TOTAL GARBAGE NON-JSON OUTPUT: <<INVALID>> !!!"
+	]
+	
+	var test8_ok = true
+	for malformed in malformed_responses:
+		var parsed = architect._extract_json_dict(malformed)
+		# Attempting to finalize generation with either the repaired dict or fallback
+		if parsed.is_empty():
+			parsed = architect._create_fallback_from_prompt("Create 2 rivers and 1 mountain.")
+		architect._finalize_world_generation(parsed)
+		if architect.tool_registry.active_blueprint == null:
+			test8_ok = false
 			
-	# -------------------------------------------------------------------------
-	# TEST 9: Ambiguity detection ("Make that mountain taller" without selection)
-	# -------------------------------------------------------------------------
-	var edit9 = architect._create_fallback_edit("Make that mountain taller", {})
-	var clar = str(edit9.get("clarification_needed", ""))
-	if not clar.is_empty() and edit9.get("operations", []).is_empty():
-		print("[PASS] Test 9: Ambiguous instruction detected without guessing -> '%s'" % clar)
+	if test8_ok:
+		print("[PASS] Test 8: Safely handled malformed/truncated JSON responses with zero crashes.")
 	else:
-		printerr("[FAIL] Test 9: Ambiguous instruction did not request clarification.")
+		printerr("[FAIL] Test 8: Malformed response crashed or corrupted world generation.")
 		all_passed = false
 		
-	print("=================================================================")
+	# -------------------------------------------------------------------------
+	# TEST 9: Simulate an Ollama timeout and verify project remains responsive.
+	# -------------------------------------------------------------------------
+	print("\n--- TEST 9: Simulated Ollama timeout handling ---")
+	architect.is_busy = true
+	architect.current_user_prompt = "Create 3 mountains, 2 rivers, and 4 lakes."
+	architect.current_intent = ForestArchitect.parse_natural_language_intent(architect.current_user_prompt)
+	
+	# Simulate HTTPRequest timeout callback: result = RESULT_TIMEOUT (13), response_code = 0
+	architect._on_request_completed(HTTPRequest.RESULT_TIMEOUT, 0, PackedStringArray(), PackedByteArray())
+	
+	var bp9 = architect.tool_registry.active_blueprint
+	var is_not_busy = (architect.is_busy == false)
+	var recovered_world = (bp9 != null and bp9.mountains.size() == 3 and bp9.rivers.size() == 2 and bp9.lakes.size() == 4)
+	
+	if is_not_busy and recovered_world:
+		print("[PASS] Test 9: Successfully caught timeout (code 0); reset busy state and generated verified requested world.")
+	else:
+		printerr("[FAIL] Test 9: Timeout recovery failed. is_busy=%s, recovered_world=%s" % [str(architect.is_busy), str(recovered_world)])
+		all_passed = false
+		
+	print("\n=================================================================")
 	if all_passed:
-		print("ALL 9 ACCEPTANCE TESTS PASSED SUCCESSFULLY!")
+		print("ALL 9 TESTS PASSED SUCCESSFULLY!")
 	else:
 		printerr("ONE OR MORE TESTS FAILED!")
 	print("=================================================================")

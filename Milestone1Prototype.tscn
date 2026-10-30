@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3 uid="uid://dp64kqn2v2j3u"]
+
+[ext_resource type="Script" uid="uid://c84x0t2c5o6re" path="res://Milestone1Prototype.gd" id="1_proto"]
+
+[node name="Milestone1Prototype" type="Node3D"]
+script = ExtResource("1_proto")
+

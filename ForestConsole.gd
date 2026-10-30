@@ -335,7 +335,8 @@ func _build_ui_nodes() -> void:
 	cr_vbox.add_child(cr_head)
 	
 	creation_stage_label = Label.new()
-	creation_stage_label.text = "01 — Interpreting your vision (Qwen3:4B)"
+	var m_name = forest_architect.model_name if forest_architect else "Qwen3:4B"
+	creation_stage_label.text = "01 — Interpreting your vision (%s)" % m_name
 	creation_stage_label.add_theme_color_override("font_color", Color.WHITE)
 	creation_stage_label.add_theme_font_size_override("font_size", 18)
 	cr_vbox.add_child(creation_stage_label)
@@ -570,7 +571,8 @@ func _check_ollama_status() -> void:
 	add_child(test_http)
 	test_http.request_completed.connect(func(res, code, _h, _b):
 		if res == HTTPRequest.RESULT_SUCCESS and code == 200:
-			ai_status_badge.text = "OLLAMA: READY [qwen3:4b]"
+			var m_id = forest_architect.model_name if forest_architect else "qwen3:4b"
+			ai_status_badge.text = "OLLAMA: READY [%s]" % m_id
 			ai_status_badge.add_theme_color_override("font_color", Color(0.35, 0.85, 0.45))
 		else:
 			ai_status_badge.text = "LOCAL FALLBACK: READY"
@@ -610,9 +612,10 @@ func _on_random_pressed() -> void:
 
 func _start_generation_sequence(prompt_text: String) -> void:
 	_set_studio_state(StudioState.GENERATING)
-	creation_stage_label.text = "01 — Interpreting your vision (Qwen3:4B)"
+	var cur_m = forest_architect.model_name if forest_architect else "Qwen3:4B"
+	creation_stage_label.text = "01 — Interpreting your vision (%s)" % cur_m
 	creation_progress_bar.value = 15.0
-	creation_detail_label.text = "Connecting to Qwen3:4B to establish landforms, hydrology, and biomes..."
+	creation_detail_label.text = "Connecting to %s to establish landforms, hydrology, and biomes..." % cur_m
 	
 	if forest_architect:
 		forest_architect.generate_world(prompt_text)
@@ -656,8 +659,8 @@ func _on_blueprint_ready(blueprint: ForestBlueprint, _raw_dict: Dictionary) -> v
 		
 	# 3. Update HUD labels
 	hud_biome_label.text = "SUBLIMEGREENS · " + blueprint.theme.to_upper()
-	hud_stats_label.text = "Peaks: %d  |  Rivers: %d  |  Biomes: %d  |  Seed: %d" % [
-		blueprint.mountains.size(), blueprint.rivers.size(), blueprint.biome_regions.size(), blueprint.world_seed
+	hud_stats_label.text = "Peaks: %d  |  Rivers: %d  |  Lakes: %d  |  Biomes: %d  |  Seed: %d" % [
+		blueprint.mountains.size(), blueprint.rivers.size(), blueprint.lakes.size(), blueprint.biome_regions.size(), blueprint.world_seed
 	]
 	
 	if current_state == StudioState.GENERATING:

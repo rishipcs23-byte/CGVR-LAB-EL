@@ -82,8 +82,11 @@ extends Node3D
 @export_group("Overall Scaling")
 @export var overall_scale: float = 10.0
 
+const WorldState = preload("res://WorldState.gd")
+
 # --- Internal State ---
 var chunk_coords: Vector2i = Vector2i.ZERO
+var world_state: WorldState = null
 var _grass_blade_mesh: ArrayMesh
 var _tree_mesh: ArrayMesh
 var _sorted_grass_transforms: Array[Transform3D] = [] # <-- NEW
@@ -101,8 +104,10 @@ func _ready():
 		flora_container.name = "FloraContainer"
 		add_child(flora_container)
 
-func initialize_chunk(coords: Vector2i, blueprint: ForestBlueprint = null):
+func initialize_chunk(coords: Vector2i, blueprint: ForestBlueprint = null, p_world_state: WorldState = null):
 	chunk_coords = coords
+	if p_world_state != null:
+		world_state = p_world_state
 	if is_inside_tree():
 		global_position.x = coords.x * chunk_size_x * overall_scale
 		global_position.z = coords.y * chunk_size_z * overall_scale
@@ -320,17 +325,99 @@ func _create_tree_mesh() -> ArrayMesh:
 
 
 func generate_terrain():
-	# ... (This function is unchanged) ...
-	var st = SurfaceTool.new(); st.begin(Mesh.PRIMITIVE_TRIANGLES); var step_x = chunk_size_x / float(vertices_x - 1); var step_z = chunk_size_z / float(vertices_z - 1); var _noise_continent = noise_continent; var _noise_mountain = noise_mountain; var _noise_valley = noise_valley; var _noise_erosion = noise_erosion;
+	var st = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var step_x = chunk_size_x / float(vertices_x - 1)
+	var step_z = chunk_size_z / float(vertices_z - 1)
+	var _noise_continent = noise_continent
+	var _noise_mountain = noise_mountain
+	var _noise_valley = noise_valley
+	var _noise_erosion = noise_erosion
+	
 	for z in range(vertices_z):
 		for x in range(vertices_x):
-			var vx = x * step_x; var vz = z * step_z; var wx = vx + chunk_coords.x * chunk_size_x; var wz = vz + chunk_coords.y * chunk_size_z; var raw_continent_noise = _noise_continent.get_noise_2d(wx, wz); var normalized_continent_noise = (raw_continent_noise + 1.0) * 0.5; var conceptual_base_height = lerp(continent_min_height, continent_max_height, normalized_continent_noise); var mountain_modulator = clamp((conceptual_base_height - mountain_start_height) / mountain_fade_height, 0.0, 1.0); var m_potential = max(0.0, _noise_mountain.get_noise_2d(wx, wz)) * mountain_scale; var m = m_potential * mountain_modulator; var valley_carve = 0.0;
-			if conceptual_base_height < valley_apply_threshold: var valley_noise = _noise_valley.get_noise_2d(wx, wz); var negative_valley = min(valley_noise, 0.0); var valley_modulator = clamp((valley_apply_threshold - conceptual_base_height) / valley_apply_threshold, 0.0, 1.0); valley_carve = negative_valley * valley_carve_scale * valley_modulator;
-			var nc = normalized_continent_noise; var erosion_modulator = 1.0 - abs(nc - 0.5) * 2.0; var bump_e = _noise_erosion.get_noise_2d(wx, wz) * erosion_scale * erosion_modulator; var c_slope_contribution = raw_continent_noise * continent_slope_scale; var raw_h = c_slope_contribution + m + valley_carve + bump_e;
-			var height = active_blueprint.get_height_at(wx, wz, raw_h) if active_blueprint else raw_h; var vertex = Vector3(vx, height, vz); var uv = Vector2(x / float(vertices_x - 1), z / float(vertices_z - 1)); st.set_uv(uv); st.add_vertex(vertex);
+			var vx = x * step_x
+			var vz = z * step_z
+			var height: float
+			
+			if world_state != null:
+				# Query authoritative WorldState elevation in physical world meters
+				var wx = (chunk_coords.x * chunk_size_x + vx) * overall_scale
+				var wz = (chunk_coords.y * chunk_size_z + vz) * overall_scale
+				var world_h = world_state.get_elevation_at(wx, wz)
+				# Convert to chunk local space so that scaling by overall_scale gives world_h
+				height = world_h / overall_scale if overall_scale > 0.0 else world_h
+			else:
+				var wx = vx + chunk_coords.x * chunk_size_x
+				var wz = vz + chunk_coords.y * chunk_size_z
+				var raw_continent_noise = _noise_continent.get_noise_2d(wx, wz) if _noise_continent else 0.0
+				var normalized_continent_noise = (raw_continent_noise + 1.0) * 0.5
+				var conceptual_base_height = lerp(continent_min_height, continent_max_height, normalized_continent_noise)
+				var mountain_modulator = clamp((conceptual_base_height - mountain_start_height) / mountain_fade_height, 0.0, 1.0)
+				var m_potential = max(0.0, _noise_mountain.get_noise_2d(wx, wz)) * mountain_scale if _noise_mountain else 0.0
+				var m = m_potential * mountain_modulator
+				var valley_carve = 0.0
+				if conceptual_base_height < valley_apply_threshold and _noise_valley:
+					var valley_noise = _noise_valley.get_noise_2d(wx, wz)
+					var negative_valley = min(valley_noise, 0.0)
+					var valley_modulator = clamp((valley_apply_threshold - conceptual_base_height) / valley_apply_threshold, 0.0, 1.0)
+					valley_carve = negative_valley * valley_carve_scale * valley_modulator
+				var nc = normalized_continent_noise
+				var erosion_modulator = 1.0 - abs(nc - 0.5) * 2.0
+				var bump_e = _noise_erosion.get_noise_2d(wx, wz) * erosion_scale * erosion_modulator if _noise_erosion else 0.0
+				var c_slope_contribution = raw_continent_noise * continent_slope_scale
+				var raw_h = c_slope_contribution + m + valley_carve + bump_e
+				height = active_blueprint.get_height_at(wx, wz, raw_h) if active_blueprint else raw_h
+				
+			var vertex = Vector3(vx, height, vz)
+			var uv = Vector2(x / float(vertices_x - 1), z / float(vertices_z - 1))
+			st.set_uv(uv)
+			st.add_vertex(vertex)
+			
 	for z in range(vertices_z - 1):
-		for x in range(vertices_x - 1): var i00 = z * vertices_x + x; var i10 = i00 + 1; var i01 = (z + 1) * vertices_x + x; var i11 = i01 + 1; st.add_index(i00); st.add_index(i10); st.add_index(i01); st.add_index(i10); st.add_index(i11); st.add_index(i01);
-	st.generate_normals(); st.generate_tangents(); var mesh: ArrayMesh = st.commit(); mesh_instance.mesh = mesh; var coll_shape = ConcavePolygonShape3D.new(); coll_shape.set_faces(mesh.get_faces()); collision_shape.shape = coll_shape;
+		for x in range(vertices_x - 1):
+			var i00 = z * vertices_x + x
+			var i10 = i00 + 1
+			var i01 = (z + 1) * vertices_x + x
+			var i11 = i01 + 1
+			st.add_index(i00)
+			st.add_index(i10)
+			st.add_index(i01)
+			st.add_index(i10)
+			st.add_index(i11)
+			st.add_index(i01)
+			
+	st.generate_normals()
+	st.generate_tangents()
+	var mesh: ArrayMesh = st.commit()
+	mesh_instance.mesh = mesh
+	var coll_shape = ConcavePolygonShape3D.new()
+	coll_shape.set_faces(mesh.get_faces())
+	collision_shape.shape = coll_shape
+
+## Updates this chunk in-place from WorldState without freeing or re-instantiating the node.
+func update_chunk_from_world_state(p_world_state: WorldState = null, categories: Array[String] = []) -> void:
+	if p_world_state != null:
+		world_state = p_world_state
+		
+	var update_all = categories.is_empty()
+	var update_terrain = update_all or categories.has("terrain") or categories.has("collision")
+	var update_water = update_all or categories.has("hydrology") or categories.has("river") or categories.has("lake")
+	var update_flora = update_all or categories.has("flora") or categories.has("terrain")
+	
+	if update_terrain:
+		generate_terrain()
+		
+	if update_water:
+		setup_water_plane()
+		_setup_river_mesh()
+		
+	if update_flora:
+		if active_blueprint != null and active_blueprint.vegetation_layers.size() > 0:
+			generate_all_flora()
+		else:
+			generate_grass()
+			generate_trees()
 
 func setup_water_plane() -> void:
 	# ... (This function is unchanged) ...
@@ -1077,8 +1164,13 @@ func _setup_river_mesh() -> void:
 		river_mat.shader = river_shader
 		var primary_river = active_blueprint.rivers[0]
 		river_mat.set_shader_parameter("flow_speed", float(primary_river.get("flow_speed", 0.65)))
-		var wf_list = primary_river.get("waterfalls", [])
-		river_mat.set_shader_parameter("waterfall_intensity", 0.85 if (wf_list is Array and wf_list.size() > 0) else 0.0)
+		
+		var total_waterfalls = 0
+		for r in active_blueprint.rivers:
+			var wf_list = r.get("waterfalls", [])
+			if wf_list is Array:
+				total_waterfalls += wf_list.size()
+		river_mat.set_shader_parameter("waterfall_intensity", 0.85 if total_waterfalls > 0 else 0.0)
 		river_mesh_instance.material_override = river_mat
 	elif water_mesh_instance and water_mesh_instance.material_override:
 		river_mesh_instance.material_override = water_mesh_instance.material_override
@@ -1137,6 +1229,28 @@ func _setup_river_mesh() -> void:
 			st.set_uv(Vector2(1.0, uv_y_b)); st.add_vertex(vB_right)
 			st.set_uv(Vector2(0.0, uv_y_b)); st.add_vertex(vB_left)
 			has_segments = true
+			
+		for wf in r.get("waterfalls", []):
+			var wf_pos: Vector2 = wf.get("pos", Vector2.ZERO)
+			if wf_pos.x >= min_chunk_x and wf_pos.x <= max_chunk_x and wf_pos.y >= min_chunk_z and wf_pos.y <= max_chunk_z:
+				var drop = float(wf.get("height_drop", 12.0))
+				var raw_y = _sample_raw_noise_height(wf_pos.x, wf_pos.y)
+				var top_y = active_blueprint.get_height_at(wf_pos.x, wf_pos.y, raw_y) + 1.0
+				var btm_y = top_y - drop
+				var local_x = wf_pos.x - min_chunk_x
+				var local_z = wf_pos.y - min_chunk_z
+				var c_tl = Vector3(local_x - half_w, top_y, local_z)
+				var c_tr = Vector3(local_x + half_w, top_y, local_z)
+				var c_br = Vector3(local_x + half_w, btm_y, local_z + 2.0)
+				var c_bl = Vector3(local_x - half_w, btm_y, local_z + 2.0)
+				st.set_normal(Vector3.FORWARD)
+				st.set_uv(Vector2(0, 0)); st.add_vertex(c_tl)
+				st.set_uv(Vector2(1, 0)); st.add_vertex(c_tr)
+				st.set_uv(Vector2(1, 1)); st.add_vertex(c_br)
+				st.set_uv(Vector2(0, 0)); st.add_vertex(c_tl)
+				st.set_uv(Vector2(1, 1)); st.add_vertex(c_br)
+				st.set_uv(Vector2(0, 1)); st.add_vertex(c_bl)
+				has_segments = true
 	
 	if has_segments:
 		st.generate_normals()
